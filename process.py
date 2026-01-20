@@ -116,12 +116,30 @@ def color_distance_lab(rgb1, rgb2):
 # ===== Arabic Text Helper =====
 def text_arabic(text):
     """
-    TEST VERSION: Return raw text with NO processing.
+    Convert Arabic text for proper RTL display with connected letters.
     
-    Testing if PythonAnywhere's font/system auto-handles Arabic BiDi.
+    CRITICAL: For MIXED content (Arabic + numbers + Latin), we MUST use BiDi algorithm!
+    Simple reversal breaks when text contains numbers, spaces, punctuation.
+    
+    Example: "الصف 2" reversed becomes "2 فصلا" which is WRONG!
+    
+    Solution:
+    1. arabic_reshaper: Connects the letters (ا ل ع ر ب ي ة → العربية)
+    2. get_display: Applies BiDi algorithm (handles Arabic + numbers correctly)
     """
-    # NO PROCESSING AT ALL - just return as-is
-    return text
+    try:
+        # Step 1: Reshape to connect letters
+        reshaped_text = arabic_reshaper.reshape(text)
+        
+        # Step 2: Apply BiDi algorithm for proper mixed-content handling
+        bidi_text = get_display(reshaped_text)
+        
+        return bidi_text
+    except Exception as e:
+        print(f"⚠️ WARNING: Arabic text processing failed: {e}")
+        print(f"  Text: {text}")
+        print(f"  Returning original text")
+        return text
 
 # ===== Color Name Mapping =====
 def get_closest_color_name(rgb):
@@ -751,4 +769,5 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n❌ خطأ: {e}")
         import traceback
+
         traceback.print_exc()
