@@ -92,6 +92,14 @@ class PatternGenerator:
             new_height = self.size
             new_width = int((width / height) * self.size)
         
+        # Enforce minimum dimensions to prevent Telegram's Photo_invalid_dimensions error
+        # Telegram requires at least 10 pixels on each side
+        MIN_DIMENSION = 10
+        if new_width < MIN_DIMENSION:
+            new_width = MIN_DIMENSION
+        if new_height < MIN_DIMENSION:
+            new_height = MIN_DIMENSION
+        
         img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
         self.actual_size = (new_width, new_height)
         
@@ -131,9 +139,17 @@ class PatternGenerator:
         grid_width = width * CELL_SIZE
         grid_height = height * CELL_SIZE
         
-        # Ensure minimum dimensions for Telegram (at least 10x10)
+        # Ensure minimum dimensions for Telegram (at least 100x100)
         grid_width = max(grid_width, 100)
         grid_height = max(grid_height, 100)
+        
+        # CRITICAL: Telegram requires width + height < 10000 pixels
+        # If the grid is too large, scale it down proportionally
+        MAX_TELEGRAM_SUM = 9900  # Leave some margin
+        if grid_width + grid_height > MAX_TELEGRAM_SUM:
+            scale_factor = MAX_TELEGRAM_SUM / (grid_width + grid_height)
+            grid_width = int(grid_width * scale_factor)
+            grid_height = int(grid_height * scale_factor)
         
         grid_image = self.pattern_image.resize((grid_width, grid_height), Image.Resampling.NEAREST)
         draw = ImageDraw.Draw(grid_image)
