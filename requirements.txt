@@ -1,0 +1,10 @@
+# Telegram Bot Dependencies
+python-telegram-bot>=21.0
+
+# Image Processing
+Pillow>=10.2.0
+numpy>=1.26.0
+
+# Arabic Text Support (BiDi algorithm needed for mixed Arabic+numbers)
+arabic-reshaper==3.0.0
+python-bidi==0.4.2
