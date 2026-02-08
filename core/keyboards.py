@@ -42,6 +42,7 @@ def get_main_menu_keyboard():
     """Main menu after pattern is generated"""
     keyboard = [
         [InlineKeyboardButton("🎯 الخطوات بالتسلسل", callback_data="start_step_mode")],
+        [InlineKeyboardButton("📄 تحميل ملف PDF", callback_data="export_pdf")],
     ]
     
     return InlineKeyboardMarkup(keyboard)

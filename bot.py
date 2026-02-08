@@ -63,8 +63,11 @@ def main():
     
     # === MAIN MENU CALLBACKS ===
     app.add_handler(CallbackQueryHandler(start_step_mode, pattern="^start_step_mode$"))
-    # TODO: Add PDF export handler
-    # app.add_handler(CallbackQueryHandler(export_pdf_handler, pattern="^export_pdf$"))
+    
+    # PDF Export
+    from handlers.pdf_export import export_pdf_handler
+    app.add_handler(CallbackQueryHandler(export_pdf_handler, pattern="^export_pdf$"))
+    
     app.add_handler(CallbackQueryHandler(new_pattern_command, pattern="^new_pattern$"))
     
     # === STEP MODE CALLBACKS ===
