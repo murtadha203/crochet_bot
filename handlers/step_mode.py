@@ -6,9 +6,9 @@ Provides row-by-row instructions with visual guides.
 """
 
 from telegram import Update
-from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 from PIL import Image
+import os
 import config
 from core.step_generator import StepGenerator
 from core.composite_img import CompositeImageCreator
@@ -239,15 +239,20 @@ async def _regenerate_pattern_with_edits(context):
         return
     
     # Get updated pattern grid
-    from process import create_grid_pattern
     from PIL import Image
-    
-    
+
     updated_grid = step_gen.get_pattern_grid()
     pattern_result = context.user_data.get('pattern_result')
     colors = pattern_result['colors']
     pattern_image = context.user_data.get('pattern_image')  # Get stored pattern image
-    original_path = context.user_data.get('original_path')
+
+    # Bug fix: key stored in start_step_mode is 'original_path' via session read
+    session_id = context.user_data.get('session_id')
+    session = session_mgr.get_session(session_id)
+    original_path = session['original_image_path'] if session else None
+
+    if not original_path or not os.path.exists(original_path):
+        return
     
     # Update composite creator with pattern_image
     context.user_data['composite_creator'] = CompositeImageCreator(

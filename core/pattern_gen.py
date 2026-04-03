@@ -15,7 +15,12 @@ from process import (
     suggest_colors_from_image,
     map_to_user_palette,
     STANDARD_YARN_PALETTE,
-    CELL_SIZE
+    CELL_SIZE,
+    get_resize_filter,
+    sharpen_for_palette,
+    enhance_for_small_output,
+    get_background_color,
+    create_background_mask,
 )
 
 
@@ -82,7 +87,7 @@ class PatternGenerator:
         
         # Load and resize image
         img = Image.open(self.image_path).convert("RGB")
-        
+
         # Calculate dimensions maintaining aspect ratio
         width, height = img.size
         if width > height:
@@ -91,24 +96,49 @@ class PatternGenerator:
         else:
             new_height = self.size
             new_width = int((width / height) * self.size)
-        
+
         # Enforce minimum dimensions to prevent Telegram's Photo_invalid_dimensions error
-        # Telegram requires at least 10 pixels on each side
         MIN_DIMENSION = 10
         if new_width < MIN_DIMENSION:
             new_width = MIN_DIMENSION
         if new_height < MIN_DIMENSION:
             new_height = MIN_DIMENSION
-        
-        img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
+        # Bug #1: Adaptive resize filter
+        resize_filter = get_resize_filter(img, new_width, new_height)
+
+        # Bug #4: Edge enhancement for non-pixel-art before downscaling
+        is_pixel_art = (resize_filter == Image.Resampling.NEAREST)
+        if not is_pixel_art:
+            img = enhance_for_small_output(img, self.size)
+
+        img = img.resize((new_width, new_height), resize_filter)
         self.actual_size = (new_width, new_height)
-        
-        # Apply median filter for smoothing
+
+        # Bug #2: Size-adaptive smoothing — skip median filter when output is small
         from PIL import ImageFilter
-        img = img.filter(ImageFilter.MedianFilter(size=3))
-        
+        MIN_SIZE_FOR_SMOOTHING = 120
+        if min(new_width, new_height) >= MIN_SIZE_FOR_SMOOTHING:
+            img = img.filter(ImageFilter.MedianFilter(size=3))
+        # else: skip smoothing to preserve fine details
+
+        # Bug #5: Sample background before palette mapping
+        bg_color = get_background_color(img)
+        bg_mask = create_background_mask(img, bg_color)
+
+        # Bug #3B: Contrast boost before palette mapping
+        img = sharpen_for_palette(img)
+
         # Map to user's color palette
         self.pattern_image = map_to_user_palette(img, user_colors)
+
+        # Bug #5: Restore background pixels to white
+        import math as _math
+        white_rgb = STANDARD_YARN_PALETTE.get("أبيض", (255, 255, 255))
+        final_pixels = self.pattern_image.load()
+        for (x, y), is_bg in bg_mask.items():
+            if is_bg:
+                final_pixels[x, y] = white_rgb
         
         # Create grid visualization
         self.grid_image = self._create_grid_pattern(user_colors)

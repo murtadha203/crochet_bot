@@ -49,6 +49,9 @@ async def image_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Save session ID in context
     context.user_data['session_id'] = session_id
     context.user_data['analysis'] = analysis
+    # Bug #6: Store thresholds for the custom-size warning
+    context.user_data['size_recommended'] = analysis['recommended_size']
+    context.user_data['size_warning_threshold'] = analysis.get('warning_threshold', 0)
     
     # Build response message
     detail_text = {

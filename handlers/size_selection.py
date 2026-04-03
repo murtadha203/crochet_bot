@@ -42,18 +42,35 @@ async def size_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def custom_size_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle custom size text input"""
+    from core.image_analyzer import ABSOLUTE_MINIMUM_SIZE
     try:
         size = int(update.message.text.strip())
-        
-        if size < config.MIN_PATTERN_SIZE or size > config.MAX_PATTERN_SIZE:
+
+        # Bug #6: Use absolute hard floor, not the recommendation-derived minimum
+        if size < ABSOLUTE_MINIMUM_SIZE:
             await update.message.reply_text(
-                f"❌ الحجم لازم يكون بين {config.MIN_PATTERN_SIZE} و {config.MAX_PATTERN_SIZE}"
+                f"❌ الحجم لازم يكون أكبر من {ABSOLUTE_MINIMUM_SIZE} غرزة"
             )
             return WAITING_CUSTOM_SIZE
-        
+
+        if size > config.MAX_PATTERN_SIZE:
+            await update.message.reply_text(
+                f"❌ الحجم لازم أصغر من {config.MAX_PATTERN_SIZE}"
+            )
+            return WAITING_CUSTOM_SIZE
+
+        # Bug #6: Warn (but allow) if below half the recommendation
+        warning_threshold = context.user_data.get('size_warning_threshold')
+        if warning_threshold and size < warning_threshold:
+            await update.message.reply_text(
+                f"⚠️ تنبيه: الحجم {size} صغير جداً لهذه الصورة\n"
+                f"الموصى به: {context.user_data.get('size_recommended', size)} غرزة\n"
+                f"سيتم المتابعة بالحجم المختار — قد تضيع تفاصيل كثيرة"
+            )
+
         await _generate_pattern(update, context, size)
         return ConversationHandler.END
-        
+
     except ValueError:
         await update.message.reply_text("❌ اكتب رقم صحيح")
         return WAITING_CUSTOM_SIZE

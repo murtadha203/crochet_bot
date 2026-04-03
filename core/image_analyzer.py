@@ -10,6 +10,9 @@ This module analyzes uploaded images to determine:
 from PIL import Image, ImageFilter
 import numpy as np
 
+# Bug #6: Hard floor — below this, output is meaningless regardless of recommendation
+ABSOLUTE_MINIMUM_SIZE = 20
+
 
 def analyze_image_complexity(image_path):
     """
@@ -45,8 +48,9 @@ def analyze_image_complexity(image_path):
     
     return {
         'recommended_size': recommended,
-        'min_size': max(80, recommended - 50),
+        'min_size': ABSOLUTE_MINIMUM_SIZE,          # Bug #6: always 20, never locked to recommendation
         'max_size': min(500, recommended + 100),
+        'warning_threshold': recommended // 2,       # Bug #6: warn if user picks below half recommendation
         'detail_level': detail_level,
         'original_size': (width, height),
         'stats': {

@@ -19,10 +19,12 @@ CELL_SIZE = 20  # Scale factor for grid visualization
 # Based on common DMC/Bernat/Red Heart yarn colors
 # Each entry: "Arabic Name": (R, G, B)
 STANDARD_YARN_PALETTE = {
-    # Neutrals (7)
+    # Neutrals (9) — Bug #3C: added two missing grey shades to close Lab-space gap
     "أسود": (0, 0, 0),
     "أبيض": (255, 255, 255),
+    "رمادي داكن جداً": (40, 40, 40),   # very dark gray — fills gap near black
     "رمادي غامق": (80, 80, 80),
+    "رمادي متوسط": (160, 160, 160),    # mid gray — fills gap between light/dark
     "رمادي": (128, 128, 128),
     "رمادي فاتح": (192, 192, 192),
     "كريمي": (255, 253, 208),
@@ -576,6 +578,102 @@ def parse_input():
     return img_path, is_knitting, longest_side, user_colors
 
 
+# ===== Bug-Fix Helper Functions =====
+
+def get_resize_filter(img, target_w, target_h):
+    """
+    Bug #1 Fix: Choose resizing filter based on image characteristics.
+    - Pixel art / cartoon with few colors: NEAREST (hard edges, no blending)
+    - Photography / natural illustration: LANCZOS (smooth gradients)
+    """
+    # Sample at small size to count unique colors quickly
+    small = img.copy()
+    small.thumbnail((200, 200), Image.Resampling.NEAREST)
+    unique_colors = len(set(small.getdata()))
+
+    # Pixel art heuristic: very few distinct colors
+    if unique_colors < 64:
+        return Image.Resampling.NEAREST
+
+    # Severe downscaling with limited colors also benefits from NEAREST
+    scale_factor = max(img.width / target_w, img.height / target_h)
+    if scale_factor > 4 and unique_colors < 200:
+        return Image.Resampling.NEAREST
+
+    return Image.Resampling.LANCZOS
+
+
+def sharpen_for_palette(img):
+    """
+    Bug #3B Fix: Boost contrast before palette mapping.
+    Polarises ambiguous intermediate pixels toward black or white,
+    preventing them from drifting to wrong palette colors (e.g. purple).
+    """
+    from PIL import ImageEnhance
+    enhancer = ImageEnhance.Contrast(img)
+    return enhancer.enhance(1.4)
+
+
+def enhance_for_small_output(img, target_size):
+    """
+    Bug #4 Fix: Pre-process non-pixel-art images that will be heavily downscaled.
+    Thickens outlines so fine features survive the size reduction.
+    """
+    from PIL import ImageFilter, ImageEnhance
+    source_size = max(img.width, img.height)
+    scale_factor = source_size / target_size
+
+    if scale_factor < 3:
+        return img  # mild downscale — no enhancement needed
+
+    # Step 1: Edge enhancement — thickens outlines
+    enhanced = img.filter(ImageFilter.EDGE_ENHANCE_MORE)
+
+    # Step 2: Sharpen — recovers clarity lost by edge enhancement
+    sharpener = ImageEnhance.Sharpness(enhanced)
+    enhanced = sharpener.enhance(1.8)
+
+    # Step 3: Contrast boost — pushes mid-tones toward black or white
+    contraster = ImageEnhance.Contrast(enhanced)
+    enhanced = contraster.enhance(1.3)
+
+    return enhanced
+
+
+def get_background_color(img, sample_size=3):
+    """
+    Bug #5 Fix: Detect background color by sampling image corners.
+    Returns the most common colour found at the 8 border sample points.
+    """
+    from collections import Counter
+    pixels = img.load()
+    w, h = img.size
+    corners = []
+    for cx, cy in [
+        (0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1),
+        (w // 2, 0), (0, h // 2), (w - 1, h // 2), (w // 2, h - 1)
+    ]:
+        corners.append(pixels[cx, cy])
+    return Counter(corners).most_common(1)[0][0]
+
+
+def create_background_mask(img, bg_color, tolerance=15):
+    """
+    Bug #5 Fix: Create a boolean mask — True where pixel IS background.
+    Uses Euclidean RGB distance to tolerate slight JPEG noise.
+    """
+    pixels = img.load()
+    w, h = img.size
+    br, bg_c, bb = bg_color
+    mask = {}
+    for y in range(h):
+        for x in range(w):
+            r, g, b = pixels[x, y]
+            dist = math.sqrt((r - br) ** 2 + (g - bg_c) ** 2 + (b - bb) ** 2)
+            mask[(x, y)] = dist < tolerance
+    return mask
+
+
 # ===== Main Processing Function =====
 def process_image():
     """Main image processing pipeline"""
@@ -612,18 +710,47 @@ def process_image():
     print(f"🔧 أبعاد الباترون: {new_width} × {new_height}")
 
     # === STEP 1: Resize the image ===
-    print("⚙️  تصغير الصورة بفلتر LANCZOS...")
-    resized_image = original_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+    # Bug #1: Use adaptive filter — NEAREST for cartoon/pixel-art, LANCZOS for photos
+    from PIL import ImageFilter, ImageEnhance
+    resize_filter = get_resize_filter(original_image, new_width, new_height)
+    filter_name = "NEAREST" if resize_filter == Image.Resampling.NEAREST else "LANCZOS"
+    print(f"⚙️  تصغير الصورة بفلتر {filter_name}...")
+
+    # Bug #4: Edge enhancement for non-pixel-art before downscaling
+    is_pixel_art = (resize_filter == Image.Resampling.NEAREST)
+    if not is_pixel_art:
+        original_image = enhance_for_small_output(original_image, longest_side)
+
+    resized_image = original_image.resize((new_width, new_height), resize_filter)
 
     # === STEP 2: Smooth out JPEG artifacts and anti-aliasing ===
-    # This prevents solid regions from splitting into multiple colors
-    print("🧹 تنعيم الصورة...")
-    from PIL import ImageFilter
-    smoothed_image = resized_image.filter(ImageFilter.MedianFilter(size=3))
+    # Bug #2: Size-adaptive smoothing — skip median filter at small output sizes
+    MIN_SIZE_FOR_SMOOTHING = 120  # stitches
+    if min(new_width, new_height) >= MIN_SIZE_FOR_SMOOTHING:
+        print("🧹 تنعيم الصورة...")
+        smoothed_image = resized_image.filter(ImageFilter.MedianFilter(size=3))
+    else:
+        print(f"⚠️ Smoothing skipped: output {new_width}×{new_height} too small — details preserved")
+        smoothed_image = resized_image
 
-    # === STEP 3: Map to user's yarn palette ===
+    # === STEP 2.5: Background separation (Bug #5) ===
+    import math as _math
+    bg_color = get_background_color(smoothed_image)
+    bg_mask = create_background_mask(smoothed_image, bg_color)
+
+    # === STEP 3: Contrast boost before palette mapping (Bug #3B) ===
+    contrast_image = sharpen_for_palette(smoothed_image)
+
+    # === STEP 4: Map to user's yarn palette ===
     print("🎨 تطبيق الألوان المتاحة...")
-    final_image = map_to_user_palette(smoothed_image, user_colors)
+    final_image = map_to_user_palette(contrast_image, user_colors)
+
+    # === STEP 4.5: Restore background pixels to white (Bug #5) ===
+    final_pixels = final_image.load()
+    white_rgb = STANDARD_YARN_PALETTE.get("أبيض", (255, 255, 255))
+    for (x, y), is_bg in bg_mask.items():
+        if is_bg:
+            final_pixels[x, y] = white_rgb
 
     # === Extract color palette ===
     colors = final_image.getcolors(new_width * new_height)
